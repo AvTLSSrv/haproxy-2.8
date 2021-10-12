@@ -75,6 +75,117 @@ smp_fetch_len(const struct arg *args, struct sample *smp, const char *kw, void *
 	return 1;
 }
 
+/* Returns 0 if the client didn't send Supported STB cipher suites
+ * Returns 1 if the client sent Supported STB cipher suite DHE_BIGN_WITH_BELT_CTR_MAC_HBELT (0xff15) ONLY 
+ * Returns 2 if the client sent Supported STB cipher suite DHT_BIGN_WITH_BELT_CTR_MAC_HBELT (0xff17) ONLY 
+ * Returns 3 if the client sent Supported STB cipher suites (0xff15) and (0xff17)
+ * Returns 4 if the client sent Supported STB cipher suite DHE_BIGN_WITH_BELT_DWP_HBELT (0xff16) ONLY 
+ * Returns 8 if the client sent Supported STB cipher suite DHT_BIGN_WITH_BELT_DWP_HBELT (0xff18) ONLY 
+ * Returns 12 if the client sent Supported STB cipher suites (0xff16) and (0xff18)
+ * Returns 15 if the client sent Supported STB cipher suites (0xff15), (0xff16), (0xff17) and (0xff18)
+ * Returns SMP_T_SINT data type
+ */
+static int
+smp_fetch_req_ssl_stb_ext(const struct arg *args, struct sample *smp, const char *kw, void *private)
+{
+        unsigned char ret = 0;
+
+	int hs_len, ext_len, bleft;
+	struct channel *chn;
+	unsigned char *data;
+
+	if (!smp->strm)
+		goto not_ssl_hello;
+
+	chn = ((smp->opt & SMP_OPT_DIR) == SMP_OPT_DIR_RES) ? &smp->strm->res : &smp->strm->req;
+	bleft = ci_data(chn);
+	data = (unsigned char *)ci_head(chn);
+
+	/* Check for SSL/TLS Handshake */
+	if (!bleft)
+		goto too_short;
+	if (*data != 0x16)
+		goto not_ssl_hello;
+
+	/* Check for SSLv3 or later (SSL version >= 3.0) in the record layer*/
+	if (bleft < 3)
+		goto too_short;
+	if (data[1] < 0x03)
+		goto not_ssl_hello;
+
+	if (bleft < 5)
+		goto too_short;
+	hs_len = (data[3] << 8) + data[4];
+	if (hs_len < 1 + 3 + 2 + 32 + 1 + 2 + 2 + 1 + 1 + 2 + 2)
+		goto not_ssl_hello; /* too short to have an extension */
+
+	data += 5; /* enter TLS handshake */
+	bleft -= 5;
+
+	/* Check for a complete client hello starting at <data> */
+	if (bleft < 1)
+		goto too_short;
+	if (data[0] != 0x01) /* msg_type = Client Hello */
+		goto not_ssl_hello;
+
+	/* Check the Hello's length */
+	if (bleft < 4)
+		goto too_short;
+	hs_len = (data[1] << 16) + (data[2] << 8) + data[3];
+	if (hs_len < 2 + 32 + 1 + 2 + 2 + 1 + 1 + 2 + 2)
+		goto not_ssl_hello; /* too short to have an extension */
+
+	/* We want the full handshake here */
+	if (bleft < hs_len)
+		goto too_short;
+
+	data += 4;
+	/* Start of the ClientHello message */
+	if (data[0] < 0x03 || data[1] < 0x01) /* TLSv1 minimum */
+		goto not_ssl_hello;
+
+	ext_len = data[34]; /* session_id_len */
+	if (ext_len > 32 || ext_len > (hs_len - 35)) /* check for correct session_id len */
+		goto not_ssl_hello;
+
+	/* Jump to cipher suite */
+	hs_len -= 35 + ext_len;
+	data   += 35 + ext_len;
+
+	if (hs_len < 4 ||                               /* minimum one cipher */
+	    (ext_len = (data[0] << 8) + data[1]) < 2 || /* minimum 2 bytes for a cipher */
+	    ext_len > hs_len)
+		goto not_ssl_hello;
+
+	hs_len -= 2;
+	data   += 2;
+
+        for(int i=0; i<ext_len; i=i+2) {
+           int chiper_suite;
+           chiper_suite = (data[i] << 8) + data[i+1];
+           if (chiper_suite == 0xff15)
+              ret = ret | 0x1;
+           if (chiper_suite == 0xff17)
+              ret = ret | 0x2;
+           if (chiper_suite == 0xff16)
+              ret = ret | 0x4;
+           if (chiper_suite == 0xff18)
+              ret = ret | 0x8;
+        }
+
+	smp->data.type = SMP_T_SINT;
+	smp->data.u.sint = ret;
+	smp->flags = SMP_F_VOLATILE;
+        return 1;
+
+ too_short:
+	smp->flags = SMP_F_MAY_CHANGE;
+
+ not_ssl_hello:
+
+	return 0;
+}
+
 /* Returns 0 if the client didn't send a SessionTicket Extension
  * Returns 1 if the client sent SessionTicket Extension
  * Returns 2 if the client also sent non-zero length SessionTicket
@@ -1409,6 +1520,7 @@ static struct sample_fetch_kw_list smp_kws = {ILH, {
 	{ "req.rdp_cookie",      smp_fetch_rdp_cookie,     ARG1(0,STR),            NULL,           SMP_T_STR,  SMP_USE_L6REQ },
 	{ "req.rdp_cookie_cnt",  smp_fetch_rdp_cookie_cnt, ARG1(0,STR),            NULL,           SMP_T_SINT, SMP_USE_L6REQ },
 	{ "req.ssl_ec_ext",      smp_fetch_req_ssl_ec_ext, 0,                      NULL,           SMP_T_BOOL, SMP_USE_L6REQ },
+	{ "req.ssl_stb_ext",     smp_fetch_req_ssl_stb_ext,0,                      NULL,           SMP_T_SINT, SMP_USE_L6REQ },
 	{ "req.ssl_st_ext",      smp_fetch_req_ssl_st_ext, 0,                      NULL,           SMP_T_SINT, SMP_USE_L6REQ },
 	{ "req.ssl_hello_type",  smp_fetch_ssl_hello_type, 0,                      NULL,           SMP_T_SINT, SMP_USE_L6REQ },
 	{ "req.ssl_sni",         smp_fetch_ssl_hello_sni,  0,                      NULL,           SMP_T_STR,  SMP_USE_L6REQ },
