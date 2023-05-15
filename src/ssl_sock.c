@@ -705,6 +705,15 @@ int ssl_init_single_engine(const char *engine_id, const char *def_algorithms)
 		goto fail_set_method;
 	}
 
+	// Setting randomness from engine by default, if there is a randomness
+	const RAND_METHOD *tmp_meth = NULL;
+	if ((tmp_meth = ENGINE_get_RAND(engine)) != NULL) { 
+		if (RAND_set_rand_method(tmp_meth) == 0) {
+			ha_alert("ssl-engine %s: failed on RAND_set_rand_method\n", engine_id);
+			goto fail_set_method;
+		}
+	}
+
 	el = calloc(1, sizeof(*el));
 	if (!el)
 		goto fail_alloc;
