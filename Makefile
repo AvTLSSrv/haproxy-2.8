@@ -920,6 +920,7 @@ ifneq ($(EXTRA_OBJS),)
 endif
 
 OBJS += src/mux_h2.o src/mux_fcgi.o src/mux_h1.o src/tcpcheck.o               \
+        src/flt_placemark.o \
         src/stream.o src/stats.o src/http_ana.o src/server.o                  \
         src/stick_table.o src/sample.o src/flt_spoe.o src/tools.o             \
         src/log.o src/cfgparse.o src/peers.o src/backend.o src/resolvers.o    \
