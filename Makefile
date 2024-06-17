@@ -1054,6 +1054,23 @@ src/haproxy.o:	src/haproxy.c $(DEP)
 	      -DBUILD_FEATURES='"$(strip $(build_features))"' \
 	       -c -o $@ $<
 
+EXCLUDE_EXAMPLESCFG = type
+EXAMPLESCFG = $(filter-out $(EXCLUDE_EXAMPLESCFG),$(patsubst appendix/examples/%.cfg,%,$(wildcard appendix/examples/*.cfg)))
+
+install-appendix:
+	$(Q)$(INSTALL) -m 644 appendix/haproxy.cfg "$(DESTDIR)$(PREFIX)"
+	$(Q)$(INSTALL) -d "$(DESTDIR)$(PREFIX)"/run
+	$(Q)$(INSTALL) -d "$(DESTDIR)$(PREFIX)"/service
+	$(Q)$(INSTALL) -d "$(DESTDIR)$(PREFIX)"/service/etc
+	$(Q)$(INSTALL) -d "$(DESTDIR)$(PREFIX)"/service/etc/systemd
+	$(Q)$(INSTALL) -d "$(DESTDIR)$(PREFIX)"/service/etc/systemd/system
+	$(Q)$(INSTALL) -m 644 appendix/etc/systemd/system/AvTLSSrvLB.service "$(DESTDIR)$(PREFIX)"/service/etc/systemd/system
+	$(Q)$(INSTALL) -d "$(DESTDIR)$(PREFIX)"/examples
+	$(Q)$(INSTALL) -m 644 appendix/examples/README.HAPROXY "$(DESTDIR)$(PREFIX)"/examples	
+	$(Q)for x in $(EXAMPLESCFG); do \
+		$(INSTALL) -v -m 644 appendix/examples/$$x.cfg "$(DESTDIR)$(PREFIX)"/examples ; \
+	done
+	 
 install-man:
 	$(Q)$(INSTALL) -d "$(DESTDIR)$(MANDIR)"/man1
 	$(Q)$(INSTALL) -m 644 doc/haproxy.1 "$(DESTDIR)$(MANDIR)"/man1
@@ -1077,7 +1094,14 @@ install-bin:
 	$(Q)$(INSTALL) -d "$(DESTDIR)$(SBINDIR)"
 	$(Q)$(INSTALL) haproxy $(EXTRA) "$(DESTDIR)$(SBINDIR)"
 
-install: install-bin install-man install-doc
+#install: install-bin install-man install-doc
+install: install-bin install-man install-doc install-appendix
+
+uninstall-appendix:
+	$(Q)rm -f "$(DESTDIR)$(PREFIX)"/haproxy.cfg
+	$(Q)rm -r "$(DESTDIR)$(PREFIX)"/run
+	$(Q)rm -r "$(DESTDIR)$(PREFIX)"/service
+	$(Q)rm -r "$(DESTDIR)$(PREFIX)"/examples
 
 uninstall:
 	$(Q)rm -f "$(DESTDIR)$(MANDIR)"/man1/haproxy.1
@@ -1086,6 +1110,7 @@ uninstall:
 	done
 	$(Q)-rmdir "$(DESTDIR)$(DOCDIR)"
 	$(Q)rm -f "$(DESTDIR)$(SBINDIR)"/haproxy
+	uninstall-appendix
 
 clean:
 	$(Q)rm -f *.[oas] src/*.[oas] haproxy test .build_opts .build_opts.new
