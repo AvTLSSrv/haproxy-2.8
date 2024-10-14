@@ -1,0 +1,44 @@
+Доработанная версия haproxy (см. ветки Branch_v2.7.*):
+- добавлен фильтр "placemark" 
+- добавлено условие "req.ssl_stb_ext"
+- если загружается engine и в его составе есть ГПСЧ, то используется ГПСЧ из engine
+
+Добавлены:
+- файл haproxy.cfg
+- каталог examples с примерами использования
+- каталог service с примером запуска как сервис
+- в каталог errors дополнительные файлы
+
+Фильтр "placemark" может использоваться для взаимодействия c программным продуктом AvTunProxy (https://avtunproxy.by/)
+Возможные параметры для фильтра "placemark":
+ name [название_фильтра]
+ label [метка_для_поиска] - по умолчанию метка "AVTLSPROXY"
+ remove-label - удалить метку из TCP-пакета
+ hexdump - вывод подробного протокола работы с данными пакетов
+
+Пример (frontend):
+    # проверка наличия в обрабатываемых данных подстроки AVTLSPROXY - признак использования avtunproxy
+    acl find_AVTLSPROXY payload(0,10) -m bin 4156544c5350524f5859 # AVTLSPROXY
+    # использование фильтра placemark - удаление из обрабатываемых данных подстроки AVTLSPROXY (если подстроки не было, то ничего и не удаляется)
+    filter placemark remove-label
+    # начало цикла обработки в случае, если обнаружено использование avtunproxy
+    use_backend be_loopback if find_AVTLSPROXY
+
+    
+Условия "req.ssl_stb_ext" в режиме работы сервера при установке TLS-соединения с клиентом позволяет проверить в пакете hello_client, получаемого от клиента, поддержку крипто-наборов BIGN_WITH_BELT (см. СТБ 34.101.65-2014).
+Возвращаемые значения:
+ 0 - если поддержка у клиента крипто-наборов BIGN_WITH_BELT не обнаружена;
+ 1 - если клиент поддерживает только DHE_BIGN_WITH_BELT_CTR_MAC_HBELT (0xff15)
+ 2 - если клиент поддерживает только DHT_BIGN_WITH_BELT_CTR_MAC_HBELT (0xff17) 
+ 3 - если клиент поддерживает (0xff15) и (0xff17)
+ 4 - если клиент поддерживает только DHE_BIGN_WITH_BELT_DWP_HBELT (0xff16)
+ 8 - если клиент поддерживает только DHT_BIGN_WITH_BELT_DWP_HBELT (0xff18)
+ 12 - если клиент поддерживает только (0xff16) and (0xff18)
+ 15 - если клиент поддерживает (0xff15), (0xff16), (0xff17) и (0xff18)
+
+Пример (frontend):
+    # обработка случая использования Avie с AvCSP или других реализации клиентов с поддержкой белорусских криптонаборов BIGN-WITH-BELT (например, AvTunProxy)
+    # ВАЖНО! Не работает для Internet Explorer с AvCSP, который не включает белорусские криптонаборы в отправляемый серверу список поддерживаемых криптонаборов
+    # ge : true if the tested value is greater than or equal to at least one value
+    use_backend https_out_bign_with_belt if { req.ssl_stb_ext ge 1 }
+
